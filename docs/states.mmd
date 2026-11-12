@@ -1,0 +1,29 @@
+stateDiagram-v2
+  direction LR
+  [*] --> RECEIVED: intake writes raw
+  RECEIVED --> HELD_SHAPE: shape unknown
+  RECEIVED --> DUPLICATE: same content
+  RECEIVED --> HELD_CONFLICT: different content
+  RECEIVED --> READY: canonical + new
+  READY --> HELD_NO_MAPPING: no mapping
+  READY --> DELIVERING
+  DELIVERING --> DELIVERED: ERP accepted
+  DELIVERING --> DELIVERED_PARTIAL: some lines refused
+  DELIVERING --> RETRYING: transient error
+  RETRYING --> DELIVERING: backoff elapsed
+  RETRYING --> NEEDS_REVIEW: budget spent
+  DELIVERING --> BACKING_OFF: rate limited
+  BACKING_OFF --> DELIVERING: lane slowed, timer
+  DELIVERING --> WAITING_CUSTOMER: no customer
+  WAITING_CUSTOMER --> DELIVERING: customer landed
+  WAITING_CUSTOMER --> NEEDS_REVIEW: 12 h limit
+  DELIVERING --> NEEDS_TENANT_FIX: ERP data problem
+  DELIVERING --> NEEDS_REVIEW: unknown answer
+  HELD_NO_MAPPING --> READY: mapping added
+  HELD_SHAPE --> READY: contract updated
+  NEEDS_TENANT_FIX --> READY: tenant fixed
+  NEEDS_REVIEW --> READY: person releases
+  HELD_CONFLICT --> READY: person decides
+  DELIVERED --> [*]
+  DELIVERED_PARTIAL --> [*]: person reviews
+  DUPLICATE --> [*]

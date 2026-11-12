@@ -1,0 +1,16 @@
+flowchart LR
+  P(["Partners<br/>9 systems"]) -->|"1 raw document"| IN["INTAKE<br/>accept + receipt"]
+  IN -->|"2 append, THEN reply"| L[("LEDGER<br/>one record per document<br/>state, attempts, history")]
+  IN -.->|"receipt"| P
+  L -->|"3 raw"| CAN["CANONICALISER<br/>shape, normalise,<br/>identity + fingerprint"]
+  CAN -->|"4 canonical or HOLD"| L
+  L -->|"5 ready"| DIS["DISPATCHER<br/>tenant lanes, order gate,<br/>POLICY table"]
+  DIS -->|"6 request"| AD["ERP ADAPTER<br/>one per ERP version"]
+  AD -->|"7 call"| ERP(["Tenant ERP<br/>180 tenants"])
+  ERP -->|"8 answer"| AD
+  AD -->|"9 plain answer"| DIS
+  DIS -->|"10 classified result"| L
+  L ---|"read only"| W["WATCHDOG<br/>alarms"]
+  L ---|"read only"| S["SUPPORT LOOKUP<br/>where is my document?"]
+  classDef store fill:#fff3cd,stroke:#3a3a3a,stroke-width:3px;
+  class L store;

@@ -1,0 +1,105 @@
+
+=== 1. IDENTITY RULE REPLAYED ON THE REAL TRAFFIC ===
+rule: same tenant+type+business number+same content = duplicate; same identity but different content = conflict (held for a human); else new
+result over 24000 deliveries: {'new': 23102, 'duplicate': 885, 'conflict': 13}
+duplicates that had ALSO landed in the old hub (= postings the rule prevents): 885 of 885  (invoices 202)
+keyless deliveries among those duplicates: 218
+duplicates a partner-key rule would have stopped (resend carries the SAME key as the first send): 0 of 885
+the 13 conflicts: all customer records=True; legal_name differs in 13 of 13; same partner both times: 2; both deliveries returned success in old hub: 7
+partner-key trust check: keyed deliveries=18448, distinct keys=18448 (never reused), deliveries with no key=5552 (23.1%)
+
+=== 2. TEXT TOTALS: IS 'strip the comma' SAFE? ===
+text totals: 167; pattern 1,234.56 holds for 167; normalised total equals sum of lines for 0
+numeric totals: 10557; pattern 1,234.56 holds for 10557; normalised total equals sum of lines for 0
+NOTE: order total equals sum(qty*unit_price) to the cent for 0 of 10724 orders, so totals cannot be checked against lines (they may include tax or shipping). The comma rule is justified by the uniform 1,234.56 pattern, not by reconciliation.
+orders with text totals that landed in the old hub: 0 of 167
+
+=== 3. RETRY WASTE (attempts that could not have helped) ===
+total attempts 56832; attempts beyond the first on documents that NEVER landed: 30504 = 53.7%
+   invalid_tax_code: 27075 attempts on 1083 docs, 0 recovered -> 25992 repeat attempts (45.7% of all)
+   unsupported_version: 5064 attempts on 1266 docs, 0 recovered -> 3798 repeat attempts
+T-1007 share of attempts: 36.2% now -> 4.0% if tax-code failures are tried once (no document is lost by this: 0 of 1083 ever recovered)
+
+=== 4. WHO CAN FIX EACH LOST DOCUMENT ===
+owner
+us                            1433
+tenant (their tax set-up)     1080
+us / partner registration     1063
+us (back off, retry later)     419
+unknown                        300
+us (wait for customer)         280
+total 4575; fixable on our side (our config, our rules or our retry policy): 3195 = 69.8%
+
+=== 5. ORDER BEFORE CUSTOMER: HOW LONG TO WAIT? ===
+474 orders hit customer_not_found; customer record landed later for 473; gap minutes: median 140, p95 245, max 261  (4.4 h)
+old retry chain for this code spans at most 30 min (120+240+480+960 s)
+
+=== 6. HOW FAST WOULD A DRIFT ALARM HAVE CAUGHT P-07? ===
+alarm rule: 6 of a partner's last 10 documents declare a version other than the registered one
+P-07 alarm would fire at 2026-02-19 01:28:53+00:00 (document #1714); last old-layout (v1) document 2026-02-19 00:18:04+00:00
+false alarms of the same rule on the other partners in 30 days: {'P-01': 0, 'P-02': 0, 'P-03': 0, 'P-04': 0, 'P-05': 0, 'P-06': 0, 'P-08': 0, 'P-09': 0}
+P-07 documents sent after the alarm time, to end of window (any failure cause): 1052 sent, 849 did not land (old hub)
+
+=== 7. IF ONE TENANT WENT SILENT, HOW LONG UNTIL SOMEONE KNEW? ===
+documents per tenant per day: median 1.4, p10 0.9, p90 9.3; tenants under 1 document/day: 32 of 180
+SLA values (min): {15: 44, 30: 68, 60: 30, 240: 38}
+p99 gap (h) for the busiest tenants (top 10% by volume): median 5.6; for the quietest half: median 85.5
+inbound silence: p99 gap between a tenant's documents has median 59.5 h, p90 across tenants 102.0 h, max 167.6 h
+=> 'no new documents' cannot be a fast alarm for quiet tenants; 'a document we accepted has not landed within its SLA' can
+alarm rule: 6 failed documents in a row for one tenant -> fires for 4 of 180 tenants in 30 days
+   T-1052: first document 01 Feb 00:22Z, alarm at 01 Feb 07:15Z -> 6.9 h after first document (589 docs in window)
+   T-1082: first document 01 Feb 01:33Z, alarm at 01 Feb 05:57Z -> 4.4 h after first document (583 docs in window)
+   T-1155: first document 01 Feb 10:37Z, alarm at 03 Feb 12:02Z -> 49.4 h after first document (94 docs in window)
+   T-1007: first document 01 Feb 00:02Z, alarm at 01 Feb 16:52Z -> 16.8 h after first document (1193 docs in window)
+   other tenants that would also alarm: 0; per-tenant failed share for them (median): nan%
+
+=== 8. SUMMARY FIGURES QUOTED IN THE WRITE-UP ===
+distinct business documents (identity + content): 23115; lost 4575 = 19.8%; per day 152.5
+lost, in no list: 1942 = 42.4% of lost; per day 64.7
+tenants with at least one lost document: 177 of 180
+tenants with a lost rate_limited document: 127
+causes merged as in the write-up (A = A1+A2, B = B1+B2): A 2329 (50.9%), B 1080 (23.6%), C 419 (9.2%), F 300 (6.6%), D 280 (6.1%), E 167 (3.7%)
+repeat attempts on documents that never landed: 30504 of 56832 attempts = 53.7%
+documents whose success the new rules only ASSUME (version 1063 + text total 167 + customer 280) = 1510
+wait limit 12 h / longest observed gap 4.35 h = 2.8x
+hourly mean attempt latency outside 12-14 Feb: median 291 ms, p99 329, max 990; inside: min 1593, median 2575  -> a 1,300 ms hourly threshold separates them with 0 false alarms and fires in the first hour (2026-02-12 00:00:00+00:00)
+alarm (d) hours above 1,300 ms outside the incident: 0; inside: 72 of 72
+
+=== 9. ALARM SENSITIVITY: do the thresholds sit on a plateau or a knife edge? ===
+(b) N failed documents in a row, per tenant -> tenants that would alarm (the 4 genuinely broken ones are T-1007, T-1052, T-1082, T-1155):
+   N=2: fires for 96 tenants; false alarms: 92 (e.g. ['T-1003', 'T-1005', 'T-1006'])
+   N=3: fires for 29 tenants; false alarms: 25 (e.g. ['T-1003', 'T-1005', 'T-1006'])
+   N=4: fires for 6 tenants; false alarms: 2 (e.g. ['T-1003', 'T-1127'])
+   N=5: fires for 4 tenants; false alarms: 0
+   N=6: fires for 4 tenants; false alarms: 0
+   N=7: fires for 4 tenants; false alarms: 0
+   N=8: fires for 4 tenants; false alarms: 0
+(c) drift rule 'k of last n documents declare an unregistered version':
+   3 of 10: P-07 alarm 09 Feb 12:44Z (-13654 min after its last old-layout doc); false alarms on other partners: 4 ['P-02', 'P-03', 'P-05', 'P-09']
+   4 of 10: P-07 alarm 19 Feb 01:03Z (45 min after its last old-layout doc); false alarms on other partners: 1 ['P-05']
+   5 of 10: P-07 alarm 19 Feb 01:22Z (65 min after its last old-layout doc); false alarms on other partners: 0 []
+   6 of 10: P-07 alarm 19 Feb 01:28Z (71 min after its last old-layout doc); false alarms on other partners: 0 []
+   7 of 10: P-07 alarm 19 Feb 01:53Z (95 min after its last old-layout doc); false alarms on other partners: 0 []
+   4 of 6: P-07 alarm 19 Feb 01:03Z (45 min after its last old-layout doc); false alarms on other partners: 0 []
+   3 of 5: P-07 alarm 19 Feb 00:47Z (29 min after its last old-layout doc); false alarms on other partners: 2 ['P-03', 'P-05']
+(d) hourly latency threshold: any value between 990 ms (highest normal hour) and 1593 ms (lowest incident hour) gives 0 false alarms and fires in the first incident hour
+
+=== 10. HOW LONG SHOULD AN ORDER WAIT FOR ITS CUSTOMER? (limit vs orders released) ===
+orders with a customer record that landed later: 473; gap (h): median 2.3, p95 4.1, max 4.35
+   limit  0.5 h: released  28 of 473; would expire to NEEDS_REVIEW 445
+   limit    1 h: released  89 of 473; would expire to NEEDS_REVIEW 384
+   limit    2 h: released 197 of 473; would expire to NEEDS_REVIEW 276
+   limit    3 h: released 323 of 473; would expire to NEEDS_REVIEW 150
+   limit    4 h: released 442 of 473; would expire to NEEDS_REVIEW  31
+   limit  4.5 h: released 473 of 473; would expire to NEEDS_REVIEW   0
+   limit    6 h: released 473 of 473; would expire to NEEDS_REVIEW   0
+   limit    8 h: released 473 of 473; would expire to NEEDS_REVIEW   0
+   limit   12 h: released 473 of 473; would expire to NEEDS_REVIEW   0
+   limit   24 h: released 473 of 473; would expire to NEEDS_REVIEW   0
+   (0.5 h is the old hub's whole retry chain)
+
+=== 11. SCALE, AND WHAT THE LOGS CANNOT TELL US ABOUT CAPACITY ===
+documents per day: mean 800; attempts per day: mean 1894; busiest hour: 52 arrivals, 204 attempts
+T-1007 share of an hour's attempts: median 34%, busiest hour 86%, hours above 50%: 131 of 721
+correlation: T-1007 hourly attempts vs other tenants' mean wait to first attempt = 0.001; wait for others when T-1007 share is in top decile: 39s vs 43s in bottom decile
+NOT in the logs: queue depth, worker count, concurrency, capacity. So 'T-1007 harmed nobody' means 'no harm is visible in wait or latency', not 'capacity was ample'.

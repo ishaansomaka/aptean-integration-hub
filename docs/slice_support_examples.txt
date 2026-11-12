@@ -1,0 +1,17 @@
+
+D-8fef0383  customer CUST-9277  |  Harrowgate Components Group (T-1007, SLA 240 min)
+  2026-02-01T00:02:45Z  RECEIVED   EV-605188 from P-03, declares payload v1
+  2026-02-01T00:02:45Z  IDENTITY   D-8fef0383: new document (customer CUST-9277, tenant T-1007, fingerprint 69b2569a60)
+  2026-02-01T00:06:21Z  ATTEMPT    #1 ERP answered 422 invalid_tax_code -> NEEDS_TENANT_FIX
+  2026-02-01T00:06:21Z  STATE      NEEDS_TENANT_FIX
+  => STATE NEEDS_TENANT_FIX   ACTED ON BY tenant   NEXT tried once; ask the tenant to fix the tax code on their side   (ERP calls: 1, re-sends attached: 0)
+
+D-e75a8aad  order SO-919076  |  Caldera Distribution Ltd (T-1142, SLA 240 min)
+  2026-02-01T04:19:32Z  RECEIVED   EV-605927 from P-08, declares payload v2
+  2026-02-01T04:19:32Z  IDENTITY   D-e75a8aad: new document (order SO-919076, tenant T-1142, fingerprint d12d89ff53)
+  2026-02-01T04:22:09Z  ATTEMPT    #1 ERP answered 409 customer_not_found -> WAITING_CUSTOMER
+  2026-02-01T04:24:09Z  ATTEMPT    #2 ERP answered 409 customer_not_found -> WAITING_CUSTOMER
+  2026-02-01T04:24:09Z  STATE      WAITING_CUSTOMER
+  2026-02-01T06:36:33Z  RELEASED   customer CUST-7529 landed (D-a9e2bf49); order re-sent
+  2026-02-01T06:36:33Z  STATE      DELIVERED - ASSUMED accepted now that the customer exists
+  => STATE DELIVERED   ACTED ON BY -   NEXT none   (ERP calls: 2, re-sends attached: 0)

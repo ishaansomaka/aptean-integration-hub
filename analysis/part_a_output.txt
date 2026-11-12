@@ -1,0 +1,88 @@
+
+=== 0. DATA CHECKS ===
+attempt rows 57072 -> 56832 after removing 240 exact duplicates (log-shipper re-run)
+events=24000 unique event_id=24000; attempts with unknown event_id=0; events with no attempt=0; DLQ rows with unknown event_id=0
+timestamps: all ISO-8601 UTC 'Z' (no mixed formats). partner sent_at AFTER hub received_at on 885 events (partner clock ahead, up to 10 min)
+data ends 2026-03-03 00:44:03+00:00
+
+=== Q1. LOST vs DUPLICATED ===
+-- why the obvious queries are wrong --
+duplicate event_id: 0  (hub mints a new id per delivery, so it can never show a duplicate)
+duplicate idempotency_key: 0 of 18448 keyed events  (no key was ever reused, so a key-based check finds zero duplicates)
+duplicate business number alone: 2054  (too many: same number legitimately recurs across tenants/types)
+-- identity = tenant + doc_type + business number --
+events=24000  distinct identities=23102  identities sent more than once=898 (all exactly twice)
+how those resends were keyed: {'fresh key each time': 675, 'no key': 220, 'mixed': 3}
+identities whose 2 sends differ in content (excl. sent_at): 13  doc types: ['customer'] (= two different customers sharing one customer_ref; collapsing them by identity alone would drop a real customer)
+
+=== P-07 documents lost: from 19 Feb 852 of 1023 = 83.3%; before 19 Feb 280 of 1643 = 17.0% (documents by first arrival; lost = no accepted delivery, excludes in-flight) ===
+-- business documents (identity + identical content): 23115 --
+DUPLICATED (landed in an ERP more than once): 885 documents, 885 extra postings
+   by type: {'order': 403, 'invoice': 202, 'customer': 151, 'shipment': 129}   (invoices posted twice is what finance found)
+   by tenant: 154 tenants affected; top: {'T-1037': 37, 'T-1005': 30, 'T-1121': 27}
+   partner resend gap: median 90 min, range 3 min to 22 days
+   outcome of the 898 re-sent identities: {'first landed / second landed': 892, 'first failed / second failed': 3, 'first landed / second failed': 2, 'first failed / second landed': 1}
+   => 894 of 898 resends were of a document that had ALREADY landed (partner never learned it did); a resend rescued a failed first send in only 1
+LOST (never landed after all attempts; excludes 3 possibly in flight, and any doc a resend later delivered): 4575 documents
+   of which reached the DLQ (visible): 2633   never reached the DLQ (invisible, 'silently lost'): 1942
+   event-level cross-check: undelivered events=4578, in DLQ=2633, in neither=1945
+   share of failed documents that the DLQ captured: 57.5% (flat across days, partners, tenants and error codes, so it looks like a random write failure, not a rule)
+   lost by type: {'order': 2374, 'invoice': 869, 'customer': 761, 'shipment': 571}
+NOT COUNTED ABOVE (hub says success): 190 orders returned 207 'partial_content' - 266 of 520 lines rejected (unknown sku), no alert, not in DLQ. Counted as delivered; flagged as silent partial loss.
+
+=== OUTCOME OF ALL 23115 DOCUMENTS: landed cleanly 18347, landed with refused lines (207) 190, lost 4575, possibly in flight 3  (= 23115) ===
+
+=== Q2. ROOT CAUSES (documents never landed, one row per business document, cause = last error) ===
+                                                                                 docs  in_dlq  attempts  share
+cause                                                                                                         
+A1 no v4 mapping for 3 tenants (T-1052, T-1082, T-1155)                          1266     742      5064  0.277
+A2 partner sends v2, catalog says v1 (mapping chosen from catalog, not request)  1063     609      1063  0.232
+B1 invalid tax code, tenant T-1007                                                805     445     20125  0.176
+C  tenant rate limit hit (429 labelled permanent, never retried)                  419     255       419  0.092
+F  validation error, no pattern found (residual)                                  300     169       300  0.066
+D  order arrived before its customer                                              280     162       827  0.061
+B2 invalid tax code, other tenants                                                275     163      6875  0.060
+E  order total sent as text with thousands comma                                  167      88       334  0.037
+total 4575
+A (mapping chosen from hand-maintained config that no longer matches reality) = 2329 documents = 50.9% of all lost; two different error codes, one cause
+A1: 3 tenants ['T-1052', 'T-1082', 'T-1155']: 1266 docs received, 0 delivered (100% fail, every day of the window); all v4 ERPs; the other 46 v4 tenants had 0 unsupported_version
+A2: catalog-registered v1 but declared v2: 1395 events; validation_error rate 76.2% vs 0.0% for matched v1 and 2.7% for matched v2
+   P-07 (registered v1): v2 share before 19 Feb = 2.9%, from 19 Feb = 99.9%; validation_error on P-07 per day: ~2.7 -> ~60  (the unannounced change)
+B: invalid_tax_code (event level, incl. 3 still in flight): 1083 docs, 27075 attempts at fixed 180 s gaps; T-1007 = 807 docs (75%); rate T-1007 67.6% of its docs vs 1.2% elsewhere; never recovered (0 of 1083)
+D: 474 orders hit customer_not_found; 194 landed on retry (3-5 attempts), 280 never landed; gave up after 2-4 attempts, not the configured 5 (attempt counts of the failed: {2: 97, 3: 99, 4: 84}).
+   customer record found for 473 of 474 such orders; it was received AFTER the order in 473 cases
+   order -> customer landed gap (min): failed orders median 139, max 261; recovered orders median 142, max 260
+   ODDITY: recovered orders landed within ~30 min of arrival, yet their customer record landed ~2 h later in the hub's own log. So the ERP could see the customer before the hub delivered it (created another way), or retry success is not about the customer record. The log cannot tell which; I would ask the platform team.
+   but 94.6% of ALL orders reference a customer the hub never saw in 30 days (already in the ERP) - the hub cannot pre-check dependencies from its own history.
+transient controls: upstream_unavailable (503) hit 1753 docs; every one landed on attempt 2 (correctly retryable, not a loss)
+
+=== Q2b. HUB LABELS vs EVIDENCE (attempt level) ===
+          error_code http_status         outcome  attempts  docs_recovered  docs_seen
+  customer_not_found         409 retryable_error      1402             194        474
+    invalid_tax_code         422 retryable_error     27075               0       1083
+         parse_error         400 retryable_error       334               0        167
+     partial_content         207         success       190             190        190
+        rate_limited         429 permanent_error       419               0        419
+ unsupported_version         400 retryable_error      5064               0       1266
+upstream_unavailable         503 retryable_error      1753            1753       1753
+    validation_error         400 permanent_error      1363               0       1363
+retry spacing (s) by previous error: {'customer_not_found': [120, 240, 480, 960], 'invalid_tax_code': [180], 'parse_error': [60], 'unsupported_version': [240], 'upstream_unavailable': [30, 31, 32, 33, 34]}
+attempts per document: {1: 19257, 2: 2017, 3: 165, 4: 1419, 5: 59, 25: 1083}  (configured max is 5; 1083 documents got 25)
+=> only customer_not_found backs off exponentially; tax-code retries are fixed 180 s, parse 60 s, version 240 s
+DLQ attempts_made equals logged attempts for 100% of rows; requeued=true on 363 rows, but no attempt after the dead-letter is logged for any of them and none is recorded as delivered (a requeue leaves no trace; 289 of them were permanent causes that a requeue cannot fix)
+
+=== Q3. NOISY NEIGHBOUR? ===
+T-1007 share of delivery attempts 36.2% vs share of documents 5.0%  (next tenant: 4.1% of attempts); 807 of its documents were tried 25 times
+T-1007 steady ~687 attempts/day, every day (not a spike); failing share of its docs 71% vs 16% for all others
+queue wait (received -> first attempt): median 26s, p99 277s, max 285s; max never above 285s on any day -> NO backlog visible; the reported 6-hour backlog does not appear anywhere in these logs
+end-to-end for delivered docs (received -> landed): max 33 min; longest retry chain 72 min
+latency: 72 hours with mean >1000ms, first 2026-02-12 00:00:00+00:00 last 2026-02-14 23:00:00+00:00 (= 12-14 Feb, 72 consecutive hours)
+   median latency inside 2535 ms vs outside 291 ms; 98% of active tenants slowed, all 5 ERP product lines and all regions
+   corr(T-1007 hourly attempts, other tenants' latency) = 0.007  -> the slowdown is NOT explained by T-1007
+   during the incident: outcome mix, document volume and queue wait were unchanged (no visible delivery damage); nobody reported it
+VERDICT: no evidence in these logs that T-1007 slowed other tenants. It does take 36% of delivery capacity on 5% of the traffic by retrying a permanent error 25 times, with no per-tenant limit - a risk, not a measured harm. A 72-hour all-tenant latency incident (12-14 Feb) is the real unreported event.
+
+=== EXTRA. OTHER ODDITIES ===
+customer records carrying a primary_contact (name, email, phone, date_of_birth) stored verbatim in the log: 1260 (1260 with date_of_birth) - personal data in an unredacted ops log
+SLA breaches among delivered docs: 766 if measured from partner sent_at, 45 from hub received_at (partner clocks differ by up to 10 min; I judge from received_at)
+payload_version declared vs registered: 1395 mismatches ({'P-07': 1106, 'P-03': 83, 'P-05': 82, 'P-02': 67, 'P-09': 57})

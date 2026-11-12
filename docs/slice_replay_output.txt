@@ -1,0 +1,12 @@
+deliveries in: 24000   ledger documents: 23115   duplicates attached: 885   23115 + 885 = 24000, must equal 24000: OK
+documents in a state not on the list: 0 (must be 0)
+  DELIVERED           19849
+  HELD_NO_MAPPING      1263
+  NEEDS_TENANT_FIX     1081
+  BACKING_OFF           419
+  NEEDS_REVIEW          300
+  DELIVERED_PARTIAL     190
+  HELD_CONFLICT          13
+documents held for an unknown shape: 0 (the real log fits the contracts, so 0 is expected)
+of DELIVERED: 18339 the real ERP accepted (recorded); the rest are ASSUMED accepted after our fix: 1063 version, 167 total, 280 customer
+ERP calls by the new rules: 25887   (old hub: 56,832 attempts after removing duplicate log rows)

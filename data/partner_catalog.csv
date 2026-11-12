@@ -1,0 +1,10 @@
+partner_id,partner_name,protocol,payload_version,sends_idempotency_key
+P-01,Brightline Commerce,REST,v2,true
+P-02,Cascade 3PL,SFTP,v1,false
+P-03,Nordmark EDI,AS2,v1,false
+P-04,Orchard Marketplace,REST,v2,true
+P-05,Halden Freight,REST,v1,true
+P-06,PayBridge,REST,v2,true
+P-07,Stormont Retail,REST,v1,true
+P-08,Tandem CRM,REST,v2,true
+P-09,Marlowe Payments,REST,v1,true

@@ -1,0 +1,35 @@
+=== 1. The same business document delivered twice (a real pair from the log) lands once ===
+deliveries fed in: EV-618407 (first send), EV-618408 (partner's resend), EV-618408 (that same delivery processed again)
+
+D-a10c5e7c  invoice INV-727155  |  Granite Chemical Ltd (T-1053, SLA 15 min)
+  2026-02-01T03:11:41Z  RECEIVED   EV-618407 from P-02, declares payload v1
+  2026-02-01T03:11:41Z  IDENTITY   D-a10c5e7c: new document (invoice INV-727155, tenant T-1053, fingerprint ce6ae8c4f7)
+  2026-02-01T03:12:14Z  ATTEMPT    #1 ERP answered 201 ok -> DELIVERED
+  2026-02-01T03:12:14Z  STATE      DELIVERED
+  2026-02-01T05:51:41Z  DUPLICATE  EV-618408 from P-02 is the same document (same fingerprint ce6ae8c4f7); attached, NOT sent to the ERP again. Current state: DELIVERED
+  2026-02-01T05:51:41Z  DUPLICATE  EV-618408 from P-02 arrived AGAIN (same delivery id: a replay) and is the same document (same fingerprint ce6ae8c4f7); attached, NOT sent to the ERP again. Current state: DELIVERED
+  => STATE DELIVERED   ACTED ON BY -   NEXT none   (ERP calls: 1, re-sends attached: 2)
+
+deliveries received: 3   ERP calls made: 1   documents in ledger: 1   (old hub posted this invoice twice)
+
+=== 3. A partner changes its layout without changing the declared version (a real invoice with one field renamed) ===
+
+D-79cb024c-S  invoice INV-682210  |  Ashford Chemical BV (T-1024, SLA 30 min)
+  2026-02-01T00:01:14Z  RECEIVED   EV-SIMULATED from P-02, declares payload v1
+  2026-02-01T00:01:14Z  SHAPE      does not fit the v1 invoice contract: missing ['amount_due'], unexpected ['amount']
+  2026-02-01T00:01:14Z  STATE      HELD_SHAPE
+  => STATE HELD_SHAPE   ACTED ON BY partner   NEXT hold; ask the partner what changed; replay once the contract is updated   (ERP calls: 0, re-sends attached: 0)
+ERP calls made: 0  (the old hub would have sent it on and let the ERP refuse it)
+
+=== 4. One real document per outcome, replaying the whole log (full trace: python hub_slice.py EV-xxxx) ===
+  DELIVERED                            EV-608137  shipment SHP-258070  T-1022  owner=-      next: none
+  DELIVERED after retry                EV-608822  invoice  INV-682210  T-1024  owner=-      next: none
+  BACKING_OFF                          EV-617705  order    SO-613457   T-1140  owner=hub    next: slow this tenant's lane, retry later
+  NEEDS_TENANT_FIX                     EV-605188  customer CUST-9277   T-1007  owner=tenant next: tried once; ask the tenant to fix the tax code on their side
+  HELD_NO_MAPPING                      EV-601033  order    SO-424390   T-1052  owner=hub    next: hold; replay automatically once a mapping exists for this tenant
+  DELIVERED_PARTIAL                    EV-603870  order    SO-894449   T-1022  owner=hub    next: landed, but some lines were rejected: review the rejected lines
+  DELIVERED (assumed-version)          EV-616666  customer CUST-8865   T-1127  owner=-      next: none
+  NEEDS_REVIEW                         EV-615613  shipment SHP-189498  T-1136  owner=hub    next: hold for review: ERP rejected the shape and no known cause applies
+  DELIVERED (assumed-total)            EV-618843  order    SO-587312   T-1050  owner=-      next: none
+  DELIVERED (assumed-customer) after retry EV-605927  order    SO-919076   T-1142  owner=-      next: none
+  HELD_CONFLICT                        EV-602456  customer CUST-4479   T-1073  owner=hub    next: same business number, DIFFERENT content: held for a person to decide (never merged)
