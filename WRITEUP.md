@@ -24,7 +24,7 @@ Data window 1 Feb to 2 Mar 2026 (30 days); "today" is 3 Mar. Every figure comes 
 3. **No memory.** Partners re-sent 898 documents, 894 after the first copy had landed. The hub posted 885 a second time.
 4. **Giving up at the wrong moment.** Orders arriving before their customer record were dropped (280). Customers who hit a speed limit were never retried (419).
 
-Two reports from the field did not hold up: I found no customer slowing the others, and no six-hour backlog. Something nobody reported did show up: **a 72-hour slowdown across almost every customer, 12 to 14 February.**
+One report did not hold up: no customer slowed the others. The "six-hour backlog" is real but is one customer's own retries (T-1007, up to 10.0 h). Two unreported problems showed up: **a 72-hour slowdown across almost every customer, 12 to 14 February**, and **partner P-09 sending nothing for 9 days from 22 February** (about 827 documents missing, an estimate).
 
 **What I propose.** One rule: *a document is written down before anyone is told it arrived, and from then on it always has a named state and a named owner.* So: (1) a document is identified by customer + type + number, so re-sends are never posted twice; (2) every failure is sorted into retry, wait, needs-us or needs-the-customer, and none is thrown away; (3) one customer's trouble cannot use up others' capacity; (4) support types an order number and sees where it is and who must act; (5) alarms for failures that went unnoticed. Replaying the real 30 days: all 885 double postings stop and all 24,000 arrivals end in a named state, so "how many documents have we lost?" becomes one count you read any morning. 3,195 of the losses (70%) come from our own settings, so we can fix them alone.
 
@@ -105,15 +105,16 @@ Codes versus causes: `unsupported_version` and `validation_error` share cause 1.
 
 ![The 72-hour slowdown (yellow) has nothing to do with T-1007's share of attempts. Hourly means over 30 days; correlation 0.007.](docs/fig_noisy.png)
 
-- **I cannot find the six-hour backlog in these logs.**
+- **The six-hour backlog is T-1007's own retry queue, not harm to others.** Documents sat between retries 75.5% of the month, in unbroken stretches up to 10.0 h; 14 stretches lasted 6 h or more. The next tenant: 2.0 h, none. It is D4's 25-try policy piling up.
 - **Unreported:** 72 straight hours, 12 to 14 Feb. Median attempt latency rose from 291 ms to 2,535 ms for 98% of active tenants, across all 5 ERP products and all regions. Outcomes, volume and queue wait did not change.
 - **Limit:** the logs hold no queue depth, worker count or capacity. "Harmed no one" means *no harm visible in wait or latency*, not that capacity was ample.
 
 ### 2.5 Other problems nobody reported, assumptions, and questions
 
+- **P-09 sent nothing from 22 Feb.** 1,929 documents (92 a day) up to 21 Feb 23:55Z, then none for 9 days while all 8 other partners carried on. At that rate about **827** documents are missing (an estimate, not a count). Cause unknown: ask P-09 now.
 - 363 dead-letter rows are marked requeued, yet **no later attempt appears in the log** (289 were causes a requeue cannot fix). 1,260 customer records carry a contact's name, email, phone and **date of birth** in an unredacted log.
 - **Assumed:** a lost document's cause is its last error; "in flight" = last attempt within 2 h of the data's end. **Unresolved:** recovered `customer_not_found` orders landed within 30 min, yet their customer record landed about 2 h later; the log cannot say why.
-- **I would ask the platform team:** Why does the dead-letter write fail 42% of the time? What does a requeue do, and where is it logged? What happened on 12 Feb? Can any ERP be health-checked or queried by business number? What is the real capacity, and how is a mapping chosen (1b is inferred from outcomes, not code)?
+- **I would ask the platform team:** Why does the dead-letter write fail 42% of the time? What does a requeue do, and where is it logged? What happened on 12 Feb? Did P-09 stop sending on 21 Feb, or did the hub lose its documents? Can any ERP be health-checked or queried by business number? What is the real capacity, and how is a mapping chosen (1b is inferred from outcomes, not code)?
 
 ---
 
@@ -196,7 +197,7 @@ They then act by owner: *hub* raise it, *tenant* send the ERP's reason, *partner
 
 *Rejected:* honouring partner keys where present. The 885 duplicates split into 675 fresh-key, 220 keyless and 3 mixed re-sends, so a key rule stops **0 of 885**. The hub's rule covers all 24,000, including the 5,552 keyless.
 
-*Cost:* it relies on business numbers being present and stable (none null in 30 days).
+*Cost:* it relies on business numbers being present and stable (none null in 30 days). *Reverse if:* a partner proves its keys are unique per document and never reused (P-07's are only a timestamp, such as `IDK-20260201T000825Z`, so a re-send gets a new key); then the key becomes a fast first check, with the business-number rule still deciding. The key is always recorded, so this costs nothing to add later.
 
 ### D3. The Ledger records a document before the partner is told it arrived. "Dead letter" is a state, not a second store.
 
@@ -236,9 +237,9 @@ They then act by owner: *hub* raise it, *tenant* send the ERP's reason, *partner
 
 ### D9. Alarms are chosen for what the data shows can be detected, and set on a plateau, not on a knife edge.
 
-*Rejected:* "no documents for N hours" alarms. The median tenant sends 1.4 documents a day and the typical p99 gap between a tenant's documents is 59.5 h. Instead: (a) a document the hub owes a move on is older than its SLA; (b) **6 failed documents in a row** for one tenant: fires for exactly the 4 broken tenants and no others; (c) **6 of a partner's last 10** documents declare an unregistered version: P-07 at 01:28 UTC on 19 Feb, 71 min after its last old-layout document, 0 false alarms on 8 partners; (d) hourly mean latency above **1,300 ms**: normal hours peaked at 990 ms, the incident's lowest hour was 1,593 ms.
+*Rejected:* "no documents for N hours" alarms **per tenant**. The median tenant sends 1.4 documents a day and the typical p99 gap between a tenant's documents is 59.5 h. Instead: (a) a document the hub owes a move on is older than its SLA; (b) **6 failed documents in a row** for one tenant: fires for exactly the 4 broken tenants and no others; (c) **6 of a partner's last 10** documents declare an unregistered version: P-07 at 01:28 UTC on 19 Feb, 71 min after its last old-layout document, 0 false alarms on 8 partners; (d) hourly mean latency above **1,300 ms**: normal hours peaked at 990 ms, the incident's lowest hour was 1,593 ms; (e) **a partner silent for 4 h**: the largest normal gap on any of 9 partners is 2.87 h, P-09 was silent for 216 h.
 
-*How firm:* I varied each. (b) N = 5 to 8 gives the same 4 tenants; N = 4 adds 2 false alarms, N = 3 adds 25. (c) 5, 6 or 7 of 10: 0 false alarms; 4 of 10 adds 1; 3 adds 4. (d) anything from 990 to 1,593 ms works. I took the middle of each plateau. *Limit:* a backtest on 30 days with one drift event and one slowdown, so these are starting values. *Cost:* too high delays the alarm; too low trains people to ignore it.
+*How firm:* I varied each. (b) N = 5 to 8 gives the same 4 tenants; N = 4 adds 2 false alarms, N = 3 adds 25. (c) 5, 6 or 7 of 10: 0 false alarms; 4 of 10 adds 1; 3 adds 4. (d) anything from 990 to 1,593 ms works. (e) 3, 4 or 6 h: 0 false alarms; 2.5 h adds 2, 2 h adds 14, 1 h adds 520. I took the middle of each plateau. *Limit:* one drift event, one slowdown, one silence in 30 days: starting values. *Cost:* too high delays the alarm; too low trains people to ignore it.
 
 ![Left: orders released by wait limit. Right: false alarms by N. Both are flat where I chose.](docs/fig_thresholds.png)
 
@@ -261,7 +262,7 @@ They then act by owner: *hub* raise it, *tenant* send the ERP's reason, *partner
 - **Exactly-once cannot be guaranteed across an ERP.** A crash after the ERP accepts but before the Ledger records it could repeat a posting. The design writes intent first and sends `doc_id` as an external reference; I do not know that any ERP honours one, and the logs hold no timeouts to learn from.
 - **300 refusals are unexplained.** **No amendments:** every repeat in 30 days was identical or a different company, so a genuinely amended invoice would be held as a clash. **429 recoverability** is unknown. **13 clashing customers** may already have overwritten each other in 7 ERPs.
 
-**With another week:** (1) get the answers in 2.5; (2) run the new hub in shadow beside the old for a week and compare per document; (3) send one document per cause to a test ERP to confirm the assumed fixes; (4) build the atomic Ledger and a lane simulator on real arrival rates; (5) tune thresholds on a longer window.
+**With another week:** (1) get the answers in 2.5; (2) run the new hub in shadow beside the old for a week and compare per document; (3) send one document per cause to a test ERP to confirm the assumed fixes; (4) build the atomic Ledger and a lane simulator on real arrival rates; (5) tune thresholds on a longer window, adding the silence alarm's K and the 6-in-a-row N per partner and tenant size; (6) settle with P-09 whether it stopped sending or the hub lost its documents, then count the real gap against the 827 estimate.
 
 ---
 
@@ -277,9 +278,9 @@ They then act by owner: *hub* raise it, *tenant* send the ERP's reason, *partner
 | Every (or most) documents fail | Six failed in a row | Replayed on real data: **4.4 h** (T-1082), **6.9 h** (T-1052), **16.8 h** (T-1007), **49.4 h** (T-1155, 94 documents). All four were still failing at the end of the window (three at 100%, T-1007 at 71%) |
 | Partner changes layout | 6 of last 10 declare an unregistered version | 71 min after P-07's last old-layout document |
 | Everyone slows down | Hourly latency above 1,300 ms | The first hour of 12 Feb (1,593 ms) |
-| A tenant's partners stop sending | Not detectable quickly for quiet tenants | Weekly volume report only |
+| A partner stops sending | Nothing for 4 hours from one partner (9 partners, about 90 documents a day each) | 4 h after its last document. P-09 would have been flagged on 22 Feb 03:55Z, not found in March |
 
-For quiet tenants the honest answer is "up to the gap before their next document". A 5-minute read-only health check per ERP would cap it near 10 minutes; I do not know one exists, so I do not count on it.
+Quiet tenants wait for their next document. A 5-minute health check per ERP would cap it near 10 minutes; I do not know one exists, so I do not count on it.
 
 **"How many documents have we lost?"** One count from the Ledger: documents in a holding state, by age. A daily check requires deliveries = documents + duplicates with **zero** in an unnamed state. The real log passes (24,000 = 23,115 + 885; 0 unnamed); the old hub could not run it.
 
@@ -309,8 +310,8 @@ For quiet tenants the honest answer is "up to the gap before their next document
 
 ## Note on AI use
 
-**Setup.** I used Claude's Deep Research to understand the brief and the ideas behind it (integration hubs, retries, idempotency), so my prompt was precise. I then made a Claude Project for this case holding the brief and the five files, with instructions to act as a mentor: the brief is the source of truth, no number without code that was run, distrust the data, tie every design choice to a finding. I also wrote a small Claude skill (a saved set of instructions) so each session started from the same checklist.
+**Setup.** I used Claude's Deep Research to understand the brief and its ideas, so my prompts were precise. I then made a Claude Project holding the brief and the five files, set to act as a mentor: no number without code that was run, distrust the data, tie each design choice to a finding. A small saved skill gave each session the same checklist.
 
-**What Claude did.** It wrote and ran the pandas analysis, built the slice and drafted this document. Every figure comes from a re-runnable script, with outputs saved beside it. Running the numbers corrected Claude twice: it first said a re-send "rescued nothing" (one did), and it explained `customer_not_found` recoveries by the customer's arrival until the timing contradicted it (2.5).
+**What Claude did.** It wrote and ran the pandas analysis, built the slice and drafted this document. Every figure comes from a re-runnable script, with its output saved beside it. I re-ran all of them after the last edits. Running the numbers corrected Claude twice: it first said a re-send "rescued nothing" (one did), and it explained `customer_not_found` recoveries by the customer's arrival until the timing contradicted it (2.5).
 
 **What is mine.** The decision log records the alternatives I considered. I read and can defend each decision.
