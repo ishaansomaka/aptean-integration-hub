@@ -103,3 +103,30 @@ documents per day: mean 800; attempts per day: mean 1894; busiest hour: 52 arriv
 T-1007 share of an hour's attempts: median 34%, busiest hour 86%, hours above 50%: 131 of 721
 correlation: T-1007 hourly attempts vs other tenants' mean wait to first attempt = 0.001; wait for others when T-1007 share is in top decile: 39s vs 43s in bottom decile
 NOT in the logs: queue depth, worker count, concurrency, capacity. So 'T-1007 harmed nobody' means 'no harm is visible in wait or latency', not 'capacity was ample'.
+
+=== 12. A PARTNER WENT QUIET; AND THE 'SIX-HOUR BACKLOG' ===
+partner  docs                      last  max_gap_h  quiet_since_h
+   P-09  1929 2026-02-21 23:55:17+00:00       2.48         216.01
+   P-06  2860 2026-03-02 23:27:53+00:00       2.19           0.47
+   P-08  2715 2026-03-02 23:38:01+00:00       1.82           0.30
+   P-03  2811 2026-03-02 23:47:10+00:00       2.02           0.15
+   P-01  2799 2026-03-02 23:49:03+00:00       2.10           0.12
+   P-07  2765 2026-03-02 23:51:52+00:00       2.13           0.07
+   P-05  2769 2026-03-02 23:52:14+00:00       2.04           0.06
+   P-04  2611 2026-03-02 23:52:29+00:00       2.87           0.06
+   P-02  2741 2026-03-02 23:55:57+00:00       2.13           0.00
+P-09: 1929 documents over 21 active days = 92/day; last document 21 Feb 23:55Z; no inbound document for 9.0 days to end of data (02 Mar 23:55Z)
+ESTIMATE (not a count): about 827 documents would have arrived at the pre-silence rate. Cause unknown from these logs: partner stopped, or intake lost them.
+silence alarm sensitivity (alarm if a partner sends nothing for K hours; false alarm = a gap > K hours in a partner that then resumed):
+   K=  1 h: false alarms across all 9 partners over the month: 520; real silence caught after 1 h (largest normal gap anywhere: 2.87 h)
+   K=  2 h: false alarms across all 9 partners over the month:  14; real silence caught after 2 h (largest normal gap anywhere: 2.87 h)
+   K=2.5 h: false alarms across all 9 partners over the month:   2; real silence caught after 2.5 h (largest normal gap anywhere: 2.87 h)
+   K=  3 h: false alarms across all 9 partners over the month:   0; real silence caught after 3 h (largest normal gap anywhere: 2.87 h)
+   K=  4 h: false alarms across all 9 partners over the month:   0; real silence caught after 4 h (largest normal gap anywhere: 2.87 h)
+   K=  6 h: false alarms across all 9 partners over the month:   0; real silence caught after 6 h (largest normal gap anywhere: 2.87 h)
+retry backlog per tenant = stretches where at least one document is between its first and last attempt (overlapping chains merged):
+tenant  share  longest_h  stretches_6h
+T-1007  0.755      9.987            14
+T-1157  0.015      2.009             0
+T-1127  0.018      1.810             0
+-> T-1007 is the only tenant with unbroken retry stretches of 6 h or more; it affects only its own documents (section 11 shows no effect on others).

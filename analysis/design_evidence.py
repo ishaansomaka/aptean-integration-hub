@@ -219,3 +219,46 @@ print(f"T-1007 share of an hour's attempts: median {hr.share7.median():.0%}, bus
 print(f"correlation: T-1007 hourly attempts vs other tenants' mean wait to first attempt = {j.n7.corr(j.wait_others):.3f}; wait for others when T-1007 share is in top decile: "
       f"{j[j.share7>=j.share7.quantile(.9)].wait_others.mean():.0f}s vs {j[j.share7<=j.share7.quantile(.1)].wait_others.mean():.0f}s in bottom decile")
 print("NOT in the logs: queue depth, worker count, concurrency, capacity. So 'T-1007 harmed nobody' means 'no harm is visible in wait or latency', not 'capacity was ample'.")
+
+# ------------------------------------------------------------------ 12. PARTNER SILENCE (P-09) AND T-1007's OWN RETRY BACKLOG
+say("12. A PARTNER WENT QUIET; AND THE 'SIX-HOUR BACKLOG'")
+_e = ev.sort_values("received_at")
+END = _e.received_at.max()
+rows = []
+for pid, d in _e.groupby("partner_id"):
+    g = d.received_at.diff().dt.total_seconds() / 3600
+    rows.append((pid, len(d), d.received_at.max(), g.max(), (END - d.received_at.max()).total_seconds() / 3600))
+sil = pd.DataFrame(rows, columns=["partner", "docs", "last", "max_gap_h", "quiet_since_h"])
+print(sil.sort_values("quiet_since_h", ascending=False).to_string(index=False, float_format=lambda x: f"{x:.2f}"))
+p9 = _e[_e.partner_id == "P-09"]
+act = p9[p9.received_at < "2026-02-22"]
+perday = len(act) / act.received_at.dt.normalize().nunique()
+quiet_d = (END - p9.received_at.max()).total_seconds() / 86400
+print(f"P-09: {len(act)} documents over {act.received_at.dt.normalize().nunique()} active days = {perday:.0f}/day; last document {p9.received_at.max():%d %b %H:%M}Z; no inbound document for {quiet_d:.1f} days to end of data ({END:%d %b %H:%M}Z)")
+print(f"ESTIMATE (not a count): about {perday*quiet_d:.0f} documents would have arrived at the pre-silence rate. Cause unknown from these logs: partner stopped, or intake lost them.")
+print("silence alarm sensitivity (alarm if a partner sends nothing for K hours; false alarm = a gap > K hours in a partner that then resumed):")
+for K in [1, 2, 2.5, 3, 4, 6]:
+    fa_ = 0
+    for pid, d in _e.groupby("partner_id"):
+        g = d.received_at.diff().dt.total_seconds() / 3600
+        fa_ += int((g > K).sum())
+    print(f"   K={K:>3} h: false alarms across all 9 partners over the month: {fa_:>3}; real silence caught after {K} h (largest normal gap anywhere: {sil.max_gap_h.max():.2f} h)")
+
+# T-1007's own retry backlog: time with at least one document of the tenant waiting between attempts
+_a = at.merge(ev[["event_id", "tenant_id"]], on="event_id")
+_g = _a.groupby("event_id").agg(t0=("attempted_at", "min"), t1=("attempted_at", "max"), n=("attempted_at", "size"), tenant=("tenant_id", "first"))
+_g = _g[_g.n > 1]
+span = (_a.attempted_at.max() - _a.attempted_at.min()).total_seconds()
+res = []
+for t, d in _g.groupby("tenant"):
+    iv = sorted(zip(d.t0, d.t1)); out = []; cs, ce = iv[0]
+    for a_, b_ in iv[1:]:
+        if a_ <= ce: ce = max(ce, b_)
+        else: out.append((cs, ce)); cs, ce = a_, b_
+    out.append((cs, ce))
+    L = [(b_ - a_).total_seconds() / 3600 for a_, b_ in out]
+    res.append((t, sum((b_ - a_).total_seconds() for a_, b_ in out) / span, max(L), sum(x >= 6 for x in L)))
+res = pd.DataFrame(res, columns=["tenant", "share", "longest_h", "stretches_6h"]).sort_values("longest_h", ascending=False)
+print("retry backlog per tenant = stretches where at least one document is between its first and last attempt (overlapping chains merged):")
+print(res.head(3).to_string(index=False, float_format=lambda x: f"{x:.3f}"))
+print("-> T-1007 is the only tenant with unbroken retry stretches of 6 h or more; it affects only its own documents (section 11 shows no effect on others).")
